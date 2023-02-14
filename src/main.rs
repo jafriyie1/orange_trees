@@ -1,6 +1,7 @@
 // mod trees;
 
-use ndarray::{Array1, Array2};
+use ndarray;
+use ndarray::{Array, Array1, Array2};
 use std::collections::{HashMap, HashSet};
 
 #[allow(dead_code)]
@@ -56,9 +57,9 @@ impl DecisionTree {
     }
 
     fn is_finished(&self, depth: u32) -> bool {
-        if (depth >= self.max_depth
+        if depth >= self.max_depth
             || self.n_class_labels.unwrap() == 1 as u32
-            || self.n_samples.unwrap() < self.min_samples_split)
+            || self.n_samples.unwrap() < self.min_samples_split
         {
             true
         } else {
@@ -66,11 +67,69 @@ impl DecisionTree {
         }
     }
 
-    fn entropy(self, y: Array1<f64>) {}
+    fn entropy(&self, y: &Array1<f64>) -> f64 {
+        let y_length = y.len() as u64;
+        let unique_values: HashSet<_> = y.iter().cloned().map(|v| v as u64).collect();
+        let proportions: Vec<f64> = unique_values
+            .into_iter()
+            .map(|val| (val as f64 / y_length as f64) as f64)
+            .collect();
 
-    fn create_split(self, X: Array2<f64>, threshold: f64) {}
+        // need to filer on negative values else log won't work
+        // let entropy = propotions.into_iter()._mapsds  (|p| p * p.log2()).sum();
+        let entropy: f64 = proportions
+            .into_iter()
+            .filter_map(|p| if p > 0.0 { Some(p * p.log2()) } else { None })
+            .sum();
+        let entropy = entropy * -1.0;
+        entropy
+    }
 
-    fn information_gain(self, X: Array2<f64>, y: Array1<f64>, threshold: f64) {}
+    fn information_gain(
+        &mut self,
+        selected_feat: Array1<f64>,
+        y: Array1<f64>,
+        threshold: f64,
+    ) -> f64 {
+        // formula for information gain
+        let parent_entropy = self.entropy(&y);
+        let (right_split, left_split) = self.create_split(&selected_feat, &threshold);
+
+        let n = &y.len();
+        let n_left = left_split.len();
+        let n_right = right_split.len();
+
+        if n_left == 0 || n_right == 0 {
+            return 0.0;
+        }
+
+        let y_idx_right = y.select(ndarray::Axis(0), &right_split);
+        let y_idx_left = y.select(ndarray::Axis(0), &left_split);
+
+        let child_loss = (n_left as f64 / *n as f64) * self.entropy(&y_idx_left)
+            + (n_right as f64 / *n as f64) * self.entropy(&y_idx_right);
+        parent_entropy - child_loss
+    }
+
+    fn create_split<'a>(
+        &mut self,
+        selected_feat: &'a Array1<f64>,
+        threshold: &'a f64,
+    ) -> (Vec<usize>, Vec<usize>) {
+        let left_idx: Vec<_> = selected_feat
+            .indexed_iter()
+            .filter(|&(_, x)| x <= threshold)
+            .map(|(a, _)| (a))
+            .collect();
+        let right_idx: Vec<_> = selected_feat
+            .indexed_iter()
+            .filter(|&(_, x)| x > threshold)
+            .map(|(a, _)| (a))
+            .collect();
+
+        (right_idx, left_idx)
+    }
+
     fn best_split(self, X: Array2<f64>, y: Array1<f64>, features: f64) {}
     fn best_tree(self, X: Array2<f64>, y: Array1<f64>, features: f64) {}
 

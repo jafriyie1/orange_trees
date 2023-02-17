@@ -1,15 +1,20 @@
 // mod trees;
 
 use ndarray;
-use ndarray::{Array, Array1, Array2};
+use ndarray::{Array1, Array2, Axis};
+use rand;
+use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
+use polars::prelude::*;
+
 #[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub struct Node {
     feature: Option<f64>,
     threshold: Option<f64>,
-    left: Option<f64>,
-    right: Option<f64>,
+    left: Option<Box<Node>>,
+    right: Option<Box<Node>>,
     value: Option<u64>,
 }
 
@@ -17,8 +22,8 @@ impl Node {
     pub fn new(
         feature: Option<f64>,
         threshold: Option<f64>,
-        left: Option<f64>,
-        right: Option<f64>,
+        left: Option<Box<Node>>,
+        right: Option<Box<Node>>,
         value: Option<u64>,
     ) -> Self {
         Self {
@@ -49,7 +54,7 @@ impl DecisionTree {
         Self {
             max_depth,
             min_samples_split,
-            root: None,
+            root: Some(Box::new(Node::new(None, None, None, None, None))),
             n_samples: None,
             n_features: None,
             n_class_labels: None,
@@ -86,14 +91,14 @@ impl DecisionTree {
     }
 
     fn information_gain(
-        &mut self,
-        selected_feat: Array1<f64>,
-        y: Array1<f64>,
+        &self,
+        selected_feat: &Array1<f64>,
+        y: &Array1<f64>,
         threshold: f64,
     ) -> f64 {
         // formula for information gain
-        let parent_entropy = self.entropy(&y);
-        let (right_split, left_split) = self.create_split(&selected_feat, &threshold);
+        let parent_entropy = self.entropy(y);
+        let (right_split, left_split) = self.create_split(selected_feat, &threshold);
 
         let n = &y.len();
         let n_left = left_split.len();
@@ -112,7 +117,7 @@ impl DecisionTree {
     }
 
     fn create_split<'a>(
-        &mut self,
+        &self,
         selected_feat: &'a Array1<f64>,
         threshold: &'a f64,
     ) -> (Vec<usize>, Vec<usize>) {
@@ -130,29 +135,53 @@ impl DecisionTree {
         (right_idx, left_idx)
     }
 
-    fn best_split(self, X: Array2<f64>, y: Array1<f64>, features: f64) {}
-    fn best_tree(self, X: Array2<f64>, y: Array1<f64>, features: f64) {}
+    fn best_split(&self, X: &Array2<f64>, y: &Array1<f64>, features: Vec<f64>) -> (f64, f64) {
+        let mut split: HashMap<&str, Option<f64>> = HashMap::new();
+        split.insert("score", Some(-1.0));
+        split.insert("feat", None);
+        split.insert("thres", None);
 
-    fn build_tree(&mut self, X: Array2<f64>, y: Array1<u64>, depth: u32) -> Option<Box<Node>> {
+        for feat in features {
+            let x_feat = X.select(Axis(1), &[feat as usize]).remove_axis(Axis(0));
+            // let x_feat_two = x_feat.remove_axis(Axis(0));
+            let thresholds: HashSet<_> = x_feat.iter().cloned().map(|v| v as u64).collect();
+
+            for thresh in thresholds {
+                let score = self.information_gain(&x_feat, &y, thresh as f64);
+
+                if score > split["score"].unwrap() {
+                    split.entry("score").or_insert(Some(score));
+                    split.entry("feat").or_insert(Some(feat));
+                    split.entry("thresh").or_insert(Some(thresh as f64));
+                }
+            }
+        }
+
+        (split["feat"].unwrap(), split["thresh"].unwrap())
+    }
+
+    fn build_tree(&mut self, X: &Array2<f64>, y: &Array1<f64>, depth: u32) -> Option<Box<Node>> {
         let shape = &X.shape();
         self.n_samples = Some(shape[0] as u32);
         self.n_features = Some(shape[1] as u32);
 
         // get unique values from array
-        let unique_values: HashSet<_> = y.iter().cloned().collect();
+        let unique_values: HashSet<_> = y.iter().map(|x| *x as u64).collect();
         self.n_class_labels = Some(unique_values.len() as u32);
 
         // stopping criteria
         if self.is_finished(depth) {
             let freq_counts: HashMap<_, _> =
-                y.iter().cloned().fold(HashMap::new(), |mut map, c| {
-                    *map.entry(c).or_insert(0) += 1;
-                    map
-                });
+                y.iter()
+                    .map(|x| *x as u64)
+                    .fold(HashMap::new(), |mut map, c| {
+                        *map.entry(c).or_insert(0) += 1;
+                        map
+                    });
             let most_common_label = freq_counts
                 .into_iter()
                 .max_by_key(|(_, v)| *v as u32)
-                .map(|(k, _)| k);
+                .map(|(k, _)| k as u64);
 
             return Some(Box::new(Node::new(
                 None,
@@ -161,21 +190,77 @@ impl DecisionTree {
                 None,
                 most_common_label,
             )));
-        } else {
-            None
         }
+
+        let mut rng = rand::thread_rng();
+        let features = (0..self.n_features.unwrap())
+            .map(|_| rng.gen_range(0..self.n_features.unwrap()))
+            .map(|x| x as f64)
+            .collect();
+
+        let (best_feat, best_threshold) = self.best_split(X, y, features);
+        let x_feature = X.select(Axis(1), &[best_feat as usize]);
+        let x_feature = x_feature.remove_axis(Axis(0));
+        let (left_idx, right_idx) = self.create_split(&x_feature, &best_threshold);
+
+        let left_x = X.select(Axis(0), &left_idx);
+        let left_y = &y.select(Axis(0), &left_idx);
+        let right_x = X.select(Axis(0), &right_idx);
+
+        let right_y = &y.select(Axis(0), &right_idx);
+
+        let left_child = self.build_tree(&left_x, left_y, depth + 1);
+        let right_child = self.build_tree(&right_x, right_y, depth + 1);
+
+        Some(Box::new(Node::new(
+            Some(best_feat),
+            Some(best_threshold),
+            left_child,
+            right_child,
+            None,
+        )))
     }
 
-    fn traverse_tree(self, X: Array2<f64>, y: Array1<u64>, features: f64) {}
+    fn traverse_tree(&self, x: Array1<f64>, node: &Option<Box<Node>>) -> u64 {
+        if let Some(node) = node {
+            if node.is_leaf() {
+                return node.value.unwrap();
+            }
+            let x_feat = x.select(Axis(1), &[node.feature.unwrap() as usize]);
+            if x_feat[[0]] < node.threshold.unwrap() {
+                return self.traverse_tree(x, &node.left);
+            }
 
-    fn fit(&mut self, X: Array2<f64>, y: Array1<u64>) {
-        let mut depth = 0;
-        self.root = self.build_tree(X, y, depth);
+            return self.traverse_tree(x, &node.right);
+        }
+        panic!("The Decision Tree is empty");
     }
 
-    fn predict(self, X: Array2<f64>) {}
+    fn fit(&mut self, X: Array2<f64>, y: Array1<f64>) {
+        let depth = 0;
+        self.root = self.build_tree(&X, &y, depth);
+    }
+
+    fn predict(&mut self, X: Array2<f64>) -> Vec<u64> {
+        let shape = &X.shape();
+        let n_samples = shape[0] as usize;
+        let mut preds = Vec::with_capacity(n_samples);
+        for row in X.axis_iter(Axis(0)) {
+            let y_pred = self.traverse_tree(row.to_owned(), &self.root);
+            preds.push(y_pred);
+        }
+
+        preds
+    }
 }
 
 fn main() {
+    let mut df = CsvReader::from_path("datasets/breast_cancer.csv")
+        .unwrap()
+        .finish()
+        .unwrap();
     println!("Hello, world!");
+    println!("{:?}", df.head(Some(5)));
+
+    df = df.drop("id").unwrap();
 }

@@ -1,12 +1,11 @@
 // mod trees;
 
+use linfa_datasets;
 use ndarray;
-use ndarray::{Array1, Array2, Axis};
+use ndarray::{arr1, Array1, Array2, Axis};
 use rand;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
-
-use polars::prelude::*;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -136,19 +135,24 @@ impl DecisionTree {
     }
 
     fn best_split(&self, X: &Array2<f64>, y: &Array1<f64>, features: Vec<f64>) -> (f64, f64) {
+        println!("{:?}", X.shape());
         let mut split: HashMap<&str, Option<f64>> = HashMap::new();
         split.insert("score", Some(-1.0));
         split.insert("feat", None);
         split.insert("thres", None);
 
         for feat in features {
+            println!("{:?}", &feat);
+
+            let temp = X.select(Axis(1), &[feat as usize])          
             let x_feat = X.select(Axis(1), &[feat as usize]).remove_axis(Axis(0));
-            // let x_feat_two = x_feat.remove_axis(Axis(0));
+            // println!("{:?}", &x_feat);
             let thresholds: HashSet<_> = x_feat.iter().cloned().map(|v| v as u64).collect();
 
             for thresh in thresholds {
                 let score = self.information_gain(&x_feat, &y, thresh as f64);
 
+                // println!("{:?}", &split);
                 if score > split["score"].unwrap() {
                     split.entry("score").or_insert(Some(score));
                     split.entry("feat").or_insert(Some(feat));
@@ -255,12 +259,35 @@ impl DecisionTree {
 }
 
 fn main() {
-    let mut df = CsvReader::from_path("datasets/breast_cancer.csv")
-        .unwrap()
-        .finish()
-        .unwrap();
-    println!("Hello, world!");
-    println!("{:?}", df.head(Some(5)));
+    // let mut df = LazyCsvReader::new("datasets/breast_cancer.csv")
+    //     .finish()
+    //     .unwrap();
+    // println!("{:?}", df.head(Some(5)));
 
-    df = df.drop("id").unwrap();
+    // df = df.drop_columns(["id"]);
+    // df = df
+    //     .map("diagnosis", |value: &str| match value {
+    //         "M" => Ok(1),
+    //         "B" => Ok(0),
+    //         _ => Err(_),
+    //     })
+    //     .unwrap();
+    // let num_rows = df.height();
+
+    // let train_mask = vec![true; (num_rows as f64 * 0.85) as usize];
+    // let train_df = df.slice(&train_mask);
+    let (train, valid) = linfa_datasets::winequality().split_with_ratio(0.8);
+    let train_y: Vec<f64> = train.targets.iter().map(|x| *x as f64).collect();
+    let train_y = arr1(&train_y);
+    let train_x = train.records;
+
+    let valid_y: Vec<f64> = valid.targets.iter().map(|x| *x as f64).collect();
+    let valid_y = arr1(&valid_y);
+    let valid_x = valid.records;
+    // Get the features and labels for the testing set
+    println!("{:?}", train_y);
+    println!("Hello, world!");
+
+    let mut model = DecisionTree::new(10, 4);
+    model.fit(train_x, train_y);
 }

@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 ndarray = "0.15.6"
 rand = "0.8.5"
-polars = "0.25.0"
+polars = {version = "0.25.0", features = ["describe", "lazy"]}
+linfa-datasets = { version = "0.x", features = ["winequality"] }

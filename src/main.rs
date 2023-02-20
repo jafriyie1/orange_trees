@@ -1,10 +1,12 @@
 // mod trees;
 
+use core::fmt;
+use itertools::Itertools;
 use linfa_datasets;
 use ndarray;
 use ndarray::{arr1, Array1, Array2, Axis};
-use rand;
 use rand::Rng;
+use rand::{self, thread_rng};
 use std::collections::{HashMap, HashSet};
 
 #[allow(dead_code)]
@@ -39,6 +41,36 @@ impl Node {
     }
 }
 
+pub enum Unique<'a> {
+    Vec(&'a Vec<f64>),
+    Ndarray(&'a Array1<f64>),
+}
+
+pub fn get_unique_values(unique_container: &Unique) -> Vec<f64> {
+    let vec_string: Vec<String> = match unique_container {
+        Unique::Vec(vec) => vec.iter().cloned().map(|v| v.to_string()).collect(),
+        Unique::Ndarray(vec_arr) => vec_arr
+            .to_vec()
+            .iter()
+            .cloned()
+            .map(|v| v.to_string())
+            .collect(),
+    };
+
+    let mut unique_values = HashSet::new();
+    for val in vec_string {
+        if !unique_values.contains(&val) {
+            unique_values.insert(val);
+        }
+    }
+
+    let conv_vec = unique_values
+        .into_iter()
+        .map(|v| v.parse::<f64>().unwrap())
+        .collect();
+    conv_vec
+}
+
 pub struct DecisionTree {
     max_depth: u32,
     min_samples_split: u32,
@@ -53,7 +85,7 @@ impl DecisionTree {
         Self {
             max_depth,
             min_samples_split,
-            root: Some(Box::new(Node::new(None, None, None, None, None))),
+            root: None,
             n_samples: None,
             n_features: None,
             n_class_labels: None,
@@ -73,14 +105,26 @@ impl DecisionTree {
 
     fn entropy(&self, y: &Array1<f64>) -> f64 {
         let y_length = y.len() as u64;
-        let unique_values: HashSet<_> = y.iter().cloned().map(|v| v as u64).collect();
-        let proportions: Vec<f64> = unique_values
+        let unique_values = get_unique_values(&Unique::Ndarray(&y));
+        // let unique_values = unique_values.get_unique_values();
+        let mut freq_counts = Vec::with_capacity(unique_values.len());
+
+        for label in &unique_values {
+            let count = y
+                .iter()
+                .cloned()
+                .filter(|elem| (*elem as f64) == *label)
+                .count();
+            freq_counts.push(count);
+        }
+
+        // println!("{:?}", freq_counts);
+        let proportions: Vec<f64> = freq_counts
             .into_iter()
             .map(|val| (val as f64 / y_length as f64) as f64)
             .collect();
 
-        // need to filer on negative values else log won't work
-        // let entropy = propotions.into_iter()._mapsds  (|p| p * p.log2()).sum();
+        // println!("{:?}", proportions);
         let entropy: f64 = proportions
             .into_iter()
             .filter_map(|p| if p > 0.0 { Some(p * p.log2()) } else { None })
@@ -97,8 +141,8 @@ impl DecisionTree {
     ) -> f64 {
         // formula for information gain
         let parent_entropy = self.entropy(y);
-        let (right_split, left_split) = self.create_split(selected_feat, &threshold);
-
+        let (left_split, right_split) = self.create_split(selected_feat, &threshold);
+        // println!("{:?}", threshold);
         let n = &y.len();
         let n_left = left_split.len();
         let n_right = right_split.len();
@@ -109,6 +153,7 @@ impl DecisionTree {
 
         let y_idx_right = y.select(ndarray::Axis(0), &right_split);
         let y_idx_left = y.select(ndarray::Axis(0), &left_split);
+        // println!("{}", y_idx_left);
 
         let child_loss = (n_left as f64 / *n as f64) * self.entropy(&y_idx_left)
             + (n_right as f64 / *n as f64) * self.entropy(&y_idx_right);
@@ -120,6 +165,9 @@ impl DecisionTree {
         selected_feat: &'a Array1<f64>,
         threshold: &'a f64,
     ) -> (Vec<usize>, Vec<usize>) {
+        // println!("{:?}", threshold);
+        // println!();
+        // println!("{:?}", selected_feat);
         let left_idx: Vec<_> = selected_feat
             .indexed_iter()
             .filter(|&(_, x)| x <= threshold)
@@ -131,33 +179,44 @@ impl DecisionTree {
             .map(|(a, _)| (a))
             .collect();
 
-        (right_idx, left_idx)
+        // println!("{:?}", right_idx);
+        // println!();
+        // println!("{:?}", left_idx);
+        (left_idx, right_idx)
     }
 
     fn best_split(&self, X: &Array2<f64>, y: &Array1<f64>, features: Vec<f64>) -> (f64, f64) {
-        println!("{:?}", X.shape());
+        // println!("{:?}", X.shape());
         let mut split: HashMap<&str, Option<f64>> = HashMap::new();
         split.insert("score", Some(-1.0));
         split.insert("feat", None);
-        split.insert("thres", None);
+        split.insert("thresh", None);
 
         for feat in features {
-            println!("{:?}", &feat);
+            // println!("{:?}", &feat);
 
-            let temp = X.select(Axis(1), &[feat as usize])          
-            let x_feat = X.select(Axis(1), &[feat as usize]).remove_axis(Axis(0));
-            // println!("{:?}", &x_feat);
-            let thresholds: HashSet<_> = x_feat.iter().cloned().map(|v| v as u64).collect();
+            let x_feat = X.select(Axis(1), &[feat as usize]).remove_axis(Axis(1));
+            // println!("{:?}", &temp);
+            let thresholds = get_unique_values(&Unique::Ndarray(&x_feat));
+            // let thresholds = thresholds.get_unique_values();
+            // println!("{:?}", &thresholds);
 
             for thresh in thresholds {
-                let score = self.information_gain(&x_feat, &y, thresh as f64);
-
+                let score = self.information_gain(&x_feat, &y, thresh);
+                // println!("{:?}", &score);
                 // println!("{:?}", &split);
                 if score > split["score"].unwrap() {
-                    split.entry("score").or_insert(Some(score));
-                    split.entry("feat").or_insert(Some(feat));
-                    split.entry("thresh").or_insert(Some(thresh as f64));
+                    // println!("hello");
+                    let score_entry = split.entry("score").or_insert(Some(score));
+                    *score_entry = Some(score);
+
+                    let feat_entry = split.entry("feat").or_insert(Some(feat));
+                    *feat_entry = Some(feat);
+
+                    let thresh_entry = split.entry("thresh").or_insert(Some(thresh));
+                    *thresh_entry = Some(thresh);
                 }
+                // println!("{:?}", &split);
             }
         }
 
@@ -170,7 +229,8 @@ impl DecisionTree {
         self.n_features = Some(shape[1] as u32);
 
         // get unique values from array
-        let unique_values: HashSet<_> = y.iter().map(|x| *x as u64).collect();
+        let unique_values = get_unique_values(&Unique::Ndarray(&y));
+        // let unique_values = unique_values.get_unique_values();
         self.n_class_labels = Some(unique_values.len() as u32);
 
         // stopping criteria
@@ -187,6 +247,7 @@ impl DecisionTree {
                 .max_by_key(|(_, v)| *v as u32)
                 .map(|(k, _)| k as u64);
 
+            // println!("{:?}", most_common_label);
             return Some(Box::new(Node::new(
                 None,
                 None,
@@ -204,10 +265,13 @@ impl DecisionTree {
 
         let (best_feat, best_threshold) = self.best_split(X, y, features);
         let x_feature = X.select(Axis(1), &[best_feat as usize]);
-        let x_feature = x_feature.remove_axis(Axis(0));
+        let x_feature = x_feature.remove_axis(Axis(1));
         let (left_idx, right_idx) = self.create_split(&x_feature, &best_threshold);
 
+        // println!("{:?}", left_idx);
+        // println!("{:?}", right_idx);
         let left_x = X.select(Axis(0), &left_idx);
+        // println!("{:?}", left_x);
         let left_y = &y.select(Axis(0), &left_idx);
         let right_x = X.select(Axis(0), &right_idx);
 
@@ -228,10 +292,13 @@ impl DecisionTree {
     fn traverse_tree(&self, x: Array1<f64>, node: &Option<Box<Node>>) -> u64 {
         if let Some(node) = node {
             if node.is_leaf() {
+                // println!("{:?}", &node.value.unwrap());
                 return node.value.unwrap();
             }
-            let x_feat = x.select(Axis(1), &[node.feature.unwrap() as usize]);
-            if x_feat[[0]] < node.threshold.unwrap() {
+            // println!("{:?}", &node);
+            let x_feat = x.select(Axis(0), &[node.feature.unwrap() as usize]);
+            // println!("{}", x_feat);
+            if x_feat[[0]] <= node.threshold.unwrap() {
                 return self.traverse_tree(x, &node.left);
             }
 
@@ -240,54 +307,97 @@ impl DecisionTree {
         panic!("The Decision Tree is empty");
     }
 
-    fn fit(&mut self, X: Array2<f64>, y: Array1<f64>) {
+    fn fit(&mut self, X: &Array2<f64>, y: &Array1<f64>) {
         let depth = 0;
-        self.root = self.build_tree(&X, &y, depth);
+        self.root = self.build_tree(X, y, depth);
     }
 
     fn predict(&mut self, X: Array2<f64>) -> Vec<u64> {
         let shape = &X.shape();
         let n_samples = shape[0] as usize;
         let mut preds = Vec::with_capacity(n_samples);
+        // println!("{:?}", &self.root);
         for row in X.axis_iter(Axis(0)) {
+            // println!("{:?}", row);
             let y_pred = self.traverse_tree(row.to_owned(), &self.root);
             preds.push(y_pred);
         }
 
         preds
     }
+
+    fn print_tree(&self) {
+        println!(
+            "feature: {:?}--threshold: {:?}",
+            &self.root.as_ref().unwrap().feature,
+            &self.root.as_ref().unwrap().threshold
+        );
+
+        let rec = |n: &Option<Box<Node>>| match n {
+            Some(n) => {
+                if n.value.is_some() {
+                    println!("class label: {:?}", n.value);
+                } else {
+                    println!("feature: {:?}--threshold: {:?}", n.feature, n.threshold)
+                }
+            }
+            None => println!("Empty"),
+        };
+
+        rec(&self.root.as_ref().unwrap().left);
+        rec(&self.root.as_ref().unwrap().right);
+    }
+}
+
+fn accuracy<T>(preds: Vec<T>, ground_truth: Vec<T>) -> f64
+where
+    T: Eq + PartialEq,
+{
+    let correct = preds
+        .iter()
+        .zip(&ground_truth)
+        .filter(|&(p, gt)| p == gt)
+        .count();
+    correct as f64 / preds.len() as f64
 }
 
 fn main() {
-    // let mut df = LazyCsvReader::new("datasets/breast_cancer.csv")
-    //     .finish()
-    //     .unwrap();
-    // println!("{:?}", df.head(Some(5)));
-
-    // df = df.drop_columns(["id"]);
-    // df = df
-    //     .map("diagnosis", |value: &str| match value {
-    //         "M" => Ok(1),
-    //         "B" => Ok(0),
-    //         _ => Err(_),
-    //     })
-    //     .unwrap();
-    // let num_rows = df.height();
-
-    // let train_mask = vec![true; (num_rows as f64 * 0.85) as usize];
-    // let train_df = df.slice(&train_mask);
-    let (train, valid) = linfa_datasets::winequality().split_with_ratio(0.8);
+    // let mut shuffle_rng = thread_rng();
+    let (train, valid) = linfa_datasets::winequality()
+        // .shuffle(&mut shuffle_rng)
+        .map_targets(|x| *x > 3)
+        .map_targets(|x| *x as u8)
+        .split_with_ratio(0.90);
     let train_y: Vec<f64> = train.targets.iter().map(|x| *x as f64).collect();
+    let temp_sel = Vec::from_iter(0..120);
     let train_y = arr1(&train_y);
+    // .select(Axis(0), &temp_sel);
     let train_x = train.records;
+    // .select(Axis(0), &temp_sel);
 
     let valid_y: Vec<f64> = valid.targets.iter().map(|x| *x as f64).collect();
     let valid_y = arr1(&valid_y);
     let valid_x = valid.records;
     // Get the features and labels for the testing set
-    println!("{:?}", train_y);
-    println!("Hello, world!");
+    // println!("{:?}", train_x);
+    // println!("{:?}", train_y);
+    // println!("Hello, world!");
 
-    let mut model = DecisionTree::new(10, 4);
-    model.fit(train_x, train_y);
+    let mut model = DecisionTree::new(10, 2);
+    model.fit(&train_x, &train_y);
+    let preds = model.predict(valid_x);
+    // println!("{:?}", preds);
+    let acc = accuracy(preds, valid_y.to_vec().iter().map(|x| *x as u64).collect());
+    println!("The validation accuracy is: {:?}", acc);
+    let train_preds = model.predict(train_x);
+    println!("{:?}", train_preds.len());
+    // println!("{:?}", train_y);
+    assert_eq!(train_preds.len(), train_y.len());
+    // println!("{:?}", &train_preds);
+    let train_acc = accuracy(
+        train_preds,
+        train_y.to_vec().iter().map(|x| *x as u64).collect(),
+    );
+    println!("The train accuracy is: {:?}", train_acc);
+    model.print_tree();
 }

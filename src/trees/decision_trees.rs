@@ -2,9 +2,10 @@ use ndarray;
 use ndarray::{Array1, Array2, Axis};
 use rand;
 use rand::Rng;
+use rayon::prelude::*;
 use std::collections::HashMap;
 
-use super::{get_unique_values, ModelInterface, Unique};
+use super::{get_unique_values, majority_vote_label, ModelInterface, Unique};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -85,13 +86,13 @@ impl DecisionTree {
         }
 
         let proportions: Vec<f64> = freq_counts
-            .into_iter()
-            .map(|val| (val as f64 / y_length as f64) as f64)
+            .par_iter()
+            .map(|val| (*val as f64 / y_length as f64) as f64)
             .collect();
 
         let entropy: f64 = proportions
-            .into_iter()
-            .filter_map(|p| if p > 0.0 { Some(p * p.log2()) } else { None })
+            .par_iter()
+            .filter_map(|p| if p > &0.0 { Some(p * p.log2()) } else { None })
             .sum();
         let entropy = entropy * -1.0;
         entropy
@@ -175,22 +176,13 @@ impl DecisionTree {
         self.n_features = Some(shape[1] as u32);
 
         // get unique values from array
-        let unique_values = get_unique_values(&Unique::Ndarray(&y));
+        let unique_y = &Unique::Ndarray(&y);
+        let unique_values = get_unique_values(unique_y);
         self.n_class_labels = Some(unique_values.len() as u32);
 
         // stopping criteria
         if self.is_finished(depth) {
-            let freq_counts: HashMap<_, _> =
-                y.iter()
-                    .map(|x| *x as u64)
-                    .fold(HashMap::new(), |mut map, c| {
-                        *map.entry(c).or_insert(0) += 1;
-                        map
-                    });
-            let most_common_label = freq_counts
-                .into_iter()
-                .max_by_key(|(_, v)| *v as u32)
-                .map(|(k, _)| k as u64);
+            let most_common_label = majority_vote_label(unique_y);
 
             return Some(Box::new(Node::new(
                 None,
@@ -242,6 +234,10 @@ impl DecisionTree {
             return self.traverse_tree(x, &node.right);
         }
         panic!("The Decision Tree is empty");
+    }
+
+    pub fn single_prediction(&mut self, row: Array1<f64>) -> u64 {
+        self.traverse_tree(row.to_owned(), &self.root)
     }
 }
 

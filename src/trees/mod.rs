@@ -1,4 +1,5 @@
 pub mod decision_trees;
+pub mod gradient_boosting;
 pub mod random_forest;
 use ndarray::{Array1, Array2};
 use rayon::prelude::*;
@@ -23,7 +24,7 @@ pub enum Unique<'a> {
 
 pub trait ModelInterface {
     fn fit(&mut self, X: &Array2<f64>, y: &Array1<f64>);
-    fn predict(&mut self, X: Array2<f64>) -> Vec<u64>;
+    fn predict(&mut self, X: &Array2<f64>) -> Vec<u64>;
     fn print_tree(&self);
 }
 

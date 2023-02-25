@@ -247,8 +247,8 @@ impl ModelInterface for DecisionTree {
         self.root = self.build_tree(X, y, depth);
     }
 
-    fn predict(&mut self, X: Array2<f64>) -> Vec<u64> {
-        let shape = &X.shape();
+    fn predict(&mut self, X: &Array2<f64>) -> Vec<u64> {
+        let shape = X.shape();
         let n_samples = shape[0] as usize;
         let mut preds = Vec::with_capacity(n_samples);
 
@@ -312,9 +312,9 @@ mod tests {
 
         let mut model = DecisionTree::new(10, 2);
         model.fit(&train_x, &train_y);
-        let preds = model.predict(valid_x);
+        let preds = model.predict(&valid_x);
         let acc = accuracy(preds, valid_y.to_vec().iter().map(|x| *x as u64).collect());
-        let train_preds = model.predict(train_x);
+        let train_preds = model.predict(&train_x);
 
         assert_eq!(train_preds.len(), train_y.len());
         let train_acc = accuracy(

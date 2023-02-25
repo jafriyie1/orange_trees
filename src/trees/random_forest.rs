@@ -1,4 +1,4 @@
-use ndarray::Axis;
+use ndarray::{Array2, Axis};
 use rand::Rng;
 use rayon::prelude::*;
 use std::collections::HashSet;
@@ -70,7 +70,7 @@ impl ModelInterface for RandomForest {
         }
     }
 
-    fn predict(&mut self, X: ndarray::Array2<f64>) -> Vec<u64> {
+    fn predict(&mut self, X: &Array2<f64>) -> Vec<u64> {
         let shape = &X.shape();
         let n_samples = shape[0] as usize;
         let mut preds = Vec::with_capacity(n_samples);
@@ -129,9 +129,9 @@ mod tests {
 
         let mut model = RandomForest::new(use_n_features as usize, 100, 5, 2, 5);
         model.fit(&train_x, &train_y);
-        let preds = model.predict(valid_x);
+        let preds = model.predict(&valid_x);
         let acc = accuracy(preds, valid_y.to_vec().iter().map(|x| *x as u64).collect());
-        let train_preds = model.predict(train_x);
+        let train_preds = model.predict(&train_x);
 
         assert_eq!(train_preds.len(), train_y.len());
         let train_acc = accuracy(

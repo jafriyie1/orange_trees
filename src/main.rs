@@ -115,10 +115,10 @@ fn use_gb_tree() {
 }
 
 fn main() {
-    // println!("Building random forest model.....");
-    // use_random_forest();
-    // println!("Building decision tree model.....");
-    // use_decision_tree();
+    println!("Building random forest model.....");
+    use_random_forest();
+    println!("Building decision tree model.....");
+    use_decision_tree();
     println!("Building gradient_boosted tree model.....");
     use_gb_tree();
 }

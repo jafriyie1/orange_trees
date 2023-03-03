@@ -111,8 +111,8 @@ impl ModelInterface for GradientBoostingTrees {
         for (i, arr1) in pred_array.iter().enumerate() {
             logits.slice_mut(s![i, ..]).assign(arr1);
         }
+
         let logits_transposed = logits.t();
-        // let logits = ndarray::stack(Axis(1), &[array2.view()]).unwrap();
         let exp_logits = logits_transposed.mapv(|x| x.exp());
         // softmax
         let numerator = y_pred.mapv(|x| x.exp());

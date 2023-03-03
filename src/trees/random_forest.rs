@@ -127,7 +127,7 @@ mod tests {
         let valid_x = valid.records;
         // Get the features and labels for the testing set
 
-        let mut model = RandomForest::new(use_n_features as usize, 100, 5, 2, 5);
+        let mut model = RandomForest::new(use_n_features as usize, 5, 5, 2, 5);
         model.fit(&train_x, &train_y);
         let preds = model.predict(&valid_x);
         let acc = accuracy(preds, valid_y.to_vec().iter().map(|x| *x as u64).collect());
